@@ -1,6 +1,12 @@
 [package]
-name = "embassy-drivers"
+name = "embers"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["rlib"]
+
 [dependencies]
+embedded-io-async = "0.7.0"
+num-derive = "0.4"
+num-traits = "0.2"
