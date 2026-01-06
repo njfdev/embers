@@ -1,7 +1,9 @@
+use core::error::Error;
+
 use embedded_io_async::{Read, Write};
 use num_traits::FromPrimitive;
 
-use crate::gps::GpsFixType;
+use crate::gps::{GPSPayload, GpsFixType};
 
 pub const SUGGESTED_UBLOX_BUFFER_SIZE: usize = 8192;
 
@@ -14,41 +16,6 @@ pub struct UBlox<R: Read, T: Write, const N: usize> {
 
     latest_gps: GPSPayload,
     latest_received: bool,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct GPSPayload {
-    pub itow: u32,
-    pub year: u16,
-    pub month: u8,
-    pub day: u8,
-    pub hour: u8,
-    pub minute: u8,
-    pub second: u8,
-    pub nanoseconds: i32,
-    pub time_accuracy: u32,
-    pub fix_type: GpsFixType,
-    pub valid_fix: bool,
-    pub valid_date: bool,
-    pub valid_time: bool,
-    pub sat_num: u8,
-    pub longitude: f64,
-    pub latitude: f64,
-    // in meters
-    pub ellipsoid_height: f32,
-    pub msl_height: f32,
-    pub horizontal_accuracy_estimate: f32,
-    pub vertical_accuracy_estimate: f32,
-    // in m/s
-    pub north_vel: f32,
-    pub east_vel: f32,
-    pub down_vel: f32,
-    pub ground_speed: f32,
-    pub ground_speed_accuracy: f32,
-    pub motion_heading: f32,
-    pub heading_accuracy: f32,
-    // dilution of position
-    pub dop: f32,
 }
 
 impl<R: Read, T: Write, const N: usize> UBlox<R, T, N> {
@@ -65,7 +32,36 @@ impl<R: Read, T: Write, const N: usize> UBlox<R, T, N> {
         }
     }
 
-    pub async fn update(&mut self) -> Result<(), String> {
+    ///*
+    /// Always returns the latest GPS payload received, regardless
+    /// if it has already been accessed.
+    /// */
+    pub fn get(&mut self) -> GPSPayload {
+        self.latest_received = true;
+        return self.latest_gps;
+    }
+
+    ///*
+    /// Gets the latest GPS payload update if it hasn't already been
+    /// access by this function. Otherwise, None is returned.
+    /// */
+    pub fn get_new(&mut self) -> Option<GPSPayload> {
+        if self.latest_received {
+            return None;
+        }
+
+        self.latest_received = true;
+        return Some(self.latest_gps);
+    }
+
+    ///*
+    /// Must run frequently. This processes and keeps the UART buffer
+    /// clear.
+    ///
+    /// If NOT run frequently (e.g., >10Hz), the buffer will overflow and
+    /// the GPS payload will not be up to date.
+    ///  */
+    pub async fn update(&mut self) -> Result<(), &str> {
         let mut rx_buf = [0; N];
         match self.rx.read(&mut rx_buf).await {
             Ok(0) => return Ok(()),
@@ -76,13 +72,12 @@ impl<R: Read, T: Write, const N: usize> UBlox<R, T, N> {
                 } else {
                     self.buf_len = 0;
                     return Err(
-                        "GPS UART Buffer is too full... Resetting buffer and dropping bytes."
-                            .to_string(),
+                        "GPS UART Buffer is too full... Resetting buffer and dropping bytes.",
                     );
                 }
             }
             Err(e) => {
-                return Err(e.to_string());
+                return Err("Rx Error");
             }
         }
 
@@ -122,13 +117,19 @@ impl<R: Read, T: Write, const N: usize> UBlox<R, T, N> {
             self.buf.copy_within(len.., 0);
             self.buf_len -= len;
 
-            return result;
+            if result.is_ok() {
+                self.latest_gps = result.unwrap();
+                self.latest_received = false;
+                return Ok(());
+            } else {
+                return Err(result.unwrap_err());
+            }
         }
 
         return Ok(());
     }
 
-    fn handle_packet(&mut self) -> Result<(), String> {
+    fn handle_packet<'a>(&self) -> Result<GPSPayload, &'a str> {
         let message_class = self.buf[2];
         let message_id = self.buf[3];
         let payload = &self.buf[6..(self.buf_len - 2)];
@@ -292,17 +293,14 @@ impl<R: Read, T: Write, const N: usize> UBlox<R, T, N> {
                         dop: p_dop,
                     };
 
-                    self.latest_gps = gps_payload;
-                    self.latest_received = false;
-
-                    return Ok(());
+                    return Ok(gps_payload);
                 }
                 _ => {
-                    return Err("GPS Unhandled message id".to_string()); //: {:2x?}", message_id;
+                    return Err("GPS Unhandled message id"); //: {:2x?}", message_id;
                 }
             },
             _ => {
-                return Err("GPS Unhandled message class".to_string()); //: {:2x?}", message_class);
+                return Err("GPS Unhandled message class"); //: {:2x?}", message_class);
             }
         }
     }
