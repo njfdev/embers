@@ -1,7 +1,11 @@
 [package]
 name = "embers"
+description = "A collection of helpful drivers for use in embedded Rust."
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/njfdev/embers"
+readme = "README.md"
 
 [lib]
 crate-type = ["rlib"]
