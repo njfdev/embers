@@ -1,5 +1,3 @@
-use core::error::Error;
-
 use embedded_io_async::{Read, Write};
 use num_traits::FromPrimitive;
 
